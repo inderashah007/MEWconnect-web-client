@@ -22,10 +22,6 @@ const debugErrors = debugLogger('MEWconnectError');
 let state = {
   wallet: null
 };
-
-const infuraUrlFormater = (name, infuraId) => {
-  return `wss://${name}.infura.io/ws/v3/${infuraId}`;
-};
 const eventHub = new EventEmitter();
 let popUpCreator = {};
 const recentDataRecord = [];
@@ -33,30 +29,19 @@ const recentDataRecord = [];
 export default class Integration extends EventEmitter {
   constructor(options = {}) {
     super();
-    if (window.web3) {
-      if (window.web3.currentProvider) {
-        if (
-          window.web3.currentProvider.isMewConnect ||
-          window.web3.currentProvider.isTrust
-        ) {
-          this.runningInApp = true;
-          state.web3Provider = window.web3.currentProvider;
-        } else {
-          this.runningInApp = false;
-        }
+    if (window.ethereum) {
+      if (window.ethereum.isMewConnect || window.ethereum.isTrust) {
+        this.runningInApp = true;
+        state.web3Provider = window.ethereum;
       } else {
         this.runningInApp = false;
       }
     } else {
       this.runningInApp = false;
     }
-
     this.windowClosedError = options.windowClosedError || false;
     this.subscriptionNotFoundNoThrow =
       options.subscriptionNotFoundNoThrow || true;
-    // eslint-disable-next-line
-    this.infuraId = !!options.infuraId ? options.infuraId : false;
-
     this.CHAIN_ID = options.chainId || 1;
     this.RPC_URL = options.rpcUrl || false;
     this.noUrlCheck = options.noUrlCheck || false;
@@ -244,9 +229,6 @@ export default class Integration extends EventEmitter {
           state.web3Provider.emit('accountsChanged', [
             state.wallet.getChecksumAddressString()
           ]);
-          // state.web3Provider.accountsChanged([
-          //   state.wallet.getChecksumAddressString()
-          // ]);
         }
         eventHub.emit('accounts_available', [
           state.wallet.getChecksumAddressString()
@@ -290,7 +272,7 @@ export default class Integration extends EventEmitter {
         if (state.web3Provider) {
           web3Provider = state.web3Provider;
         } else {
-          web3Provider = window.web3.currentProvider;
+          web3Provider = window.ethereum;
         }
       } else {
         let chain, defaultNetwork;
@@ -303,10 +285,6 @@ export default class Integration extends EventEmitter {
           defaultNetwork = this.formatNewNetworks({ name: 'unknown' });
           state.network = defaultNetwork;
         }
-
-        if (this.infuraId && !this.RPC_URL) {
-          RPC_URL = infuraUrlFormater(chain.name, this.infuraId);
-        }
         const hostUrl = url.parse(RPC_URL || defaultNetwork.url);
         const options = {
           subscriptionNotFoundNoThrow: this.subscriptionNotFoundNoThrow
@@ -318,17 +296,6 @@ export default class Integration extends EventEmitter {
           throw Error(
             'Invalid rpc endpoint supplied to MEWconnect during setup'
           );
-        }
-        if (!_noCheck && !this.infuraId) {
-          if (
-            !hostUrl.hostname.includes(chain.name) &&
-            hostUrl.hostname.includes('infura.io')
-          ) {
-            chainError = true;
-            throw Error(
-              `ChainId: ${CHAIN_ID} and infura endpoint ${hostUrl.hostname} don't match`
-            );
-          }
         }
         const parsedUrl = `${hostUrl.protocol}//${
           hostUrl.hostname ? hostUrl.hostname : hostUrl.host
@@ -496,20 +463,18 @@ export default class Integration extends EventEmitter {
         );
       } else {
         this.popUpHandler.showNoticePersistentEnter(messageConstants.approveTx);
-
         state.wallet
           .signTransaction(tx)
           .then(_response => {
+            if (!_response) return;
             if (!state.knownHashes.includes(_response.tx.hash)) {
               state.knownHashes.push(_response.tx.hash);
-
               this.popUpHandler.showNoticePersistentExit();
               resolve(_response);
             }
           })
           .catch(err => {
             this.popUpHandler.showNoticePersistentExit();
-
             if (err.reject) {
               this.popUpHandler.noShow();
               setTimeout(() => {
@@ -657,7 +622,7 @@ export default class Integration extends EventEmitter {
       }
     });
 
-    eventHub.on(EventNames.GET_ENCRYPTED_PUBLIC_KEY, ( resolve) => {
+    eventHub.on(EventNames.GET_ENCRYPTED_PUBLIC_KEY, resolve => {
       if (!state.wallet) {
         this.popUpHandler.showNoticePersistentEnter(
           messageConstants.notConnected
